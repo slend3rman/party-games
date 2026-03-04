@@ -1,0 +1,196 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&family=Nunito:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --party-bg: #0a0a1a;
+  --party-surface: #14142b;
+  --party-card: #1e1e3f;
+  --party-border: #2a2a5a;
+  --party-accent: #ff6b6b;
+  --party-secondary: #4ecdc4;
+  --party-tertiary: #ffe66d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Nunito', sans-serif;
+  background: var(--party-bg);
+  color: #e2e8f0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Animated background gradient */
+.bg-party {
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(168, 85, 247, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(255, 107, 107, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(78, 205, 196, 0.06) 0%, transparent 50%),
+    var(--party-bg);
+}
+
+/* Glass card */
+.glass-card {
+  background: rgba(30, 30, 63, 0.6);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(42, 42, 90, 0.5);
+  border-radius: 16px;
+}
+
+/* Neon text glow */
+.neon-text {
+  text-shadow: 0 0 20px rgba(255, 107, 107, 0.5), 0 0 40px rgba(255, 107, 107, 0.3);
+}
+
+/* Button styles */
+.btn-primary {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
+  color: white;
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 600;
+  padding: 12px 32px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(255, 107, 107, 0.5);
+}
+
+.btn-primary:active {
+  transform: translateY(0px);
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #4ecdc4 0%, #44b3ab 100%);
+  color: white;
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 600;
+  padding: 12px 32px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(78, 205, 196, 0.3);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(78, 205, 196, 0.5);
+}
+
+/* Color swatch for ColorRank game */
+.color-swatch {
+  width: 60px;
+  height: 60px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 3px solid transparent;
+}
+
+.color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.color-swatch.selected {
+  border-color: white;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.color-swatch.selected-1 { border-color: #FFD700; box-shadow: 0 0 20px rgba(255, 215, 0, 0.5); }
+.color-swatch.selected-2 { border-color: #C0C0C0; box-shadow: 0 0 20px rgba(192, 192, 192, 0.5); }
+.color-swatch.selected-3 { border-color: #CD7F32; box-shadow: 0 0 20px rgba(205, 127, 50, 0.5); }
+
+/* Lobby code display */
+.lobby-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.5em;
+  color: #ffe66d;
+  text-shadow: 0 0 30px rgba(255, 230, 109, 0.4);
+}
+
+/* Player card in lobby */
+.player-card {
+  background: rgba(30, 30, 63, 0.5);
+  border: 1px solid rgba(42, 42, 90, 0.4);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.player-card:hover {
+  background: rgba(30, 30, 63, 0.8);
+  border-color: rgba(42, 42, 90, 0.8);
+}
+
+/* Rank badge */
+.rank-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.rank-1 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #1a1a2e; }
+.rank-2 { background: linear-gradient(135deg, #C0C0C0, #A0A0A0); color: #1a1a2e; }
+.rank-3 { background: linear-gradient(135deg, #CD7F32, #B8690E); color: #1a1a2e; }
+
+/* Timer ring */
+.timer-ring {
+  width: 80px;
+  height: 80px;
+}
+
+.timer-ring circle {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+/* Confetti-like particles */
+@keyframes confetti-fall {
+  0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+.confetti-particle {
+  position: fixed;
+  width: 10px;
+  height: 10px;
+  animation: confetti-fall 3s ease-in forwards;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--party-bg); }
+::-webkit-scrollbar-thumb { background: var(--party-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--party-accent); }
+
+/* Image canvas for ColorRank */
+.colorrank-canvas {
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  max-width: 100%;
+}
