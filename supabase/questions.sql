@@ -29,25 +29,19 @@ ALTER PUBLICATION supabase_realtime ADD TABLE questions;
 
 INSERT INTO questions (question, answer, category) VALUES
   -- Emoji questions
-  ('What animal is this? 🐘', 'elephant', 'emoji'),
-  ('What fruit is this? 🍎', 'apple', 'emoji'),
-  ('What sport is this? ⚽', 'football', 'emoji'),
-  ('What instrument is this? 🎸', 'guitar', 'emoji'),
-  ('What weather is this? 🌧️', 'rain', 'emoji'),
-  ('What food is this? 🍕', 'pizza', 'emoji'),
-  ('What animal is this? 🦁', 'lion', 'emoji'),
-  ('What is this? 🌋', 'volcano', 'emoji'),
-  ('What vehicle is this? 🚁', 'helicopter', 'emoji'),
-  ('What is this? 🏰', 'castle', 'emoji'),
+  ('What city is this? 🐤 A ➡️', 'chicago', 'emoji'),
+  ('Guess the celebrity 🐝🔛🌊', 'beyonce', 'emoji'),
+  ('What city is this? 💥🍆', 'bangkok', 'emoji'),
+  ('What movie is this? 🥊♣️', 'fight club', 'emoji'),
+  ('What brand is this? Hint: its food 🧍‍♂️🧍‍♂️🧍‍♂️🧍‍♂️🧍‍♂️', 'five guys', 'emoji'),
+  ('What animal is this? 🌕🔑', 'monkey', 'emoji'),
+  ('What city is this? 🍐is', 'paris', 'emoji'),
+  ('What city is this? Hint: second emoji is a boat, you can ride it in a __ 🧂🚤🌆', 'Salt Lake City', 'emoji'),
+  ('What series is this? ☂️🎓', 'Umbrella Academy', 'emoji'),
+  ('What series is this? 🏰', 'castle', 'emoji'),
 
   -- General knowledge
-  ('What is the largest planet in our solar system?', 'jupiter', 'science'),
+  ('In food, which vegetable is the principal ingredient in the Irish pancake dish boxti?', 'potato', 'general'),
   ('What is the chemical symbol for gold?', 'au', 'science'),
-  ('How many sides does a hexagon have?', '6', 'math'),
-  ('What is the capital of Japan?', 'tokyo', 'geography'),
-  ('What is the hardest natural substance on Earth?', 'diamond', 'science'),
   ('In what year did the Titanic sink?', '1912', 'history'),
-  ('What is the smallest prime number?', '2', 'math'),
-  ('What color do you get when you mix red and blue?', 'purple', 'general'),
-  ('How many continents are there?', '7', 'geography'),
-  ('What gas do plants absorb from the atmosphere?', 'carbon dioxide', 'science');
+  ('What color do you get when you mix red and blue?', 'purple', 'general');
