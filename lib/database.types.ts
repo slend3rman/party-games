@@ -71,3 +71,12 @@ export type Lobby = Database['public']['Tables']['lobbies']['Row'];
 export type Player = Database['public']['Tables']['players']['Row'];
 export type Round = Database['public']['Tables']['rounds']['Row'];
 export type Submission = Database['public']['Tables']['submissions']['Row'];
+
+// Question bank (managed via supabase/questions.sql)
+export interface Question {
+  id: string;
+  question: string;
+  answer: string;
+  category: string;
+  created_at: string;
+}

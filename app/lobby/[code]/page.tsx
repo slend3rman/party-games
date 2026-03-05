@@ -3,9 +3,25 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import type { Lobby, Player, Round, Submission } from '@/lib/database.types';
-import type { ColorRankRoundData, GameConfig, ColorRankAnswer } from '@/lib/game-types';
-import { calculateColorRankScore, rankPlayers, COLOR_RANK_ROUNDS } from '@/lib/game-types';
+import type { Lobby, Player, Round, Submission, Question } from '@/lib/database.types';
+import type {
+  ColorRankRoundData,
+  GameConfig,
+  ColorRankGameConfig,
+  QAGameConfig,
+  ColorRankAnswer,
+  QARoundData,
+  QAAnswer,
+  GameType,
+} from '@/lib/game-types';
+import {
+  calculateColorRankScore,
+  calculateQAScore,
+  rankPlayers,
+  COLOR_RANK_ROUNDS,
+  DEFAULT_COLORRANK_CONFIG,
+  DEFAULT_QA_CONFIG,
+} from '@/lib/game-types';
 import ColorRankImage from '@/components/ColorRankImage';
 import Scoreboard from '@/components/Scoreboard';
 import GameSettings from '@/components/GameSettings';
@@ -27,19 +43,27 @@ export default function LobbyPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [phase, setPhase] = useState<GamePhase>('lobby');
   const [currentRound, setCurrentRound] = useState<Round | null>(null);
-  const [roundData, setRoundData] = useState<ColorRankRoundData | null>(null);
+  const [roundData, setRoundData] = useState<ColorRankRoundData | QARoundData | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [countdown, setCountdown] = useState(3);
   const [showSettings, setShowSettings] = useState(false);
   const [showPending, setShowPending] = useState(false);
+  const [selectedGame, setSelectedGame] = useState<GameType>('color_rank');
 
   // Player's answer state
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
+  const [qaAnswer, setQaAnswer] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(30);
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
 
+  // Game over tiebreaker data
+  const [playerTotalTimes, setPlayerTotalTimes] = useState<Record<string, number>>({});
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Derived: current game type from lobby state
+  const currentGameType: GameType = (lobby?.current_game as GameType) || selectedGame;
 
   // ─── Initialize from session ───────────────────────────────
   useEffect(() => {
@@ -83,7 +107,7 @@ export default function LobbyPage() {
 
           if (activeRound) {
             setCurrentRound(activeRound);
-            setRoundData(activeRound.round_data as unknown as ColorRankRoundData);
+            setRoundData(activeRound.round_data as unknown as ColorRankRoundData | QARoundData);
             setPhase('playing');
             setRoundStartTime(Date.now());
 
@@ -121,7 +145,6 @@ export default function LobbyPage() {
   useEffect(() => {
     if (!lobbyId) return;
 
-    // Listen to lobby changes
     const lobbyChannel = supabase
       .channel(`lobby-${lobbyId}`)
       .on(
@@ -136,7 +159,6 @@ export default function LobbyPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'players', filter: `lobby_id=eq.${lobbyId}` },
         async () => {
-          // Refetch all players on any change
           const { data } = await supabase
             .from('players')
             .select('*')
@@ -144,7 +166,6 @@ export default function LobbyPage() {
             .order('created_at', { ascending: true }) as { data: Player[] | null };
           if (data) {
             setPlayers(data);
-            // Detect if current player was kicked
             const pid = sessionStorage.getItem('playerId');
             if (pid && !data.some((p) => p.id === pid)) {
               sessionStorage.clear();
@@ -160,14 +181,14 @@ export default function LobbyPage() {
           const newRound = payload.new as Round;
           if (newRound.status === 'active') {
             setCurrentRound(newRound);
-            setRoundData(newRound.round_data as unknown as ColorRankRoundData);
+            setRoundData(newRound.round_data as unknown as ColorRankRoundData | QARoundData);
             setSelectedColors([]);
+            setQaAnswer('');
             setHasSubmitted(false);
             setSubmissions([]);
             setPhase('countdown');
             setCountdown(3);
           } else if (newRound.status === 'finished') {
-            // Fetch submissions for results
             (supabase
               .from('submissions')
               .select('*')
@@ -223,7 +244,6 @@ export default function LobbyPage() {
     timerRef.current = setInterval(() => {
       setTimeLeft((t) => {
         if (t <= 1) {
-          // Auto-submit on timeout
           if (!hasSubmitted) {
             handleSubmit(true);
           }
@@ -240,20 +260,32 @@ export default function LobbyPage() {
 
   // ─── Game Actions ──────────────────────────────────────────
 
-  const handleStartGame = async () => {
+  const handleStartGame = async (gameType?: GameType) => {
     if (!isHost || !lobbyId) return;
 
-    // Delete old rounds (submissions cascade-delete via FK) so that the
-    // UNIQUE(lobby_id, round_number) constraint doesn't block new rounds.
+    const gt = gameType || selectedGame;
+
+    // Delete old rounds (submissions cascade-delete via FK)
     await supabase.from('rounds').delete().eq('lobby_id', lobbyId);
 
-    // Update lobby status
+    // Set config based on game type
+    const config = gt === 'color_rank' ? DEFAULT_COLORRANK_CONFIG : DEFAULT_QA_CONFIG;
+
+    // Preserve custom settings if they match the game type
+    const existingConfig = lobby?.game_config as unknown as GameConfig;
+    const mergedConfig =
+      existingConfig?.game_type === gt
+        ? { ...config, ...existingConfig }
+        : config;
+
     await supabase
       .from('lobbies')
       .update({
         status: 'playing',
-        current_game: 'color_rank',
+        current_game: gt,
         current_round: 0,
+        game_config: mergedConfig as any,
+        total_rounds: mergedConfig.total_rounds,
       })
       .eq('id', lobbyId);
 
@@ -265,29 +297,73 @@ export default function LobbyPage() {
         .eq('id', p.id);
     }
 
-    // Start first round
-    await startNewRound(1);
+    await startNewRound(1, gt);
   };
 
-  const startNewRound = async (roundNumber: number) => {
+  const startNewRound = async (roundNumber: number, gameType?: GameType) => {
     if (!lobbyId) return;
 
-    const roundDataIndex = (roundNumber - 1) % COLOR_RANK_ROUNDS.length;
-    const rd = COLOR_RANK_ROUNDS[roundDataIndex];
+    const gt = gameType || currentGameType;
 
-    // Update lobby current_round BEFORE inserting the round, so that when the
-    // real-time subscription fires for the new round, lobby.current_round is
-    // already correct for display.
+    // Update lobby current_round BEFORE inserting the round
     await supabase
       .from('lobbies')
       .update({ current_round: roundNumber })
       .eq('id', lobbyId);
 
+    let rd: any;
+
+    if (gt === 'color_rank') {
+      const roundDataIndex = (roundNumber - 1) % COLOR_RANK_ROUNDS.length;
+      rd = COLOR_RANK_ROUNDS[roundDataIndex];
+    } else {
+      // Q&A: fetch a random question not yet used in this lobby
+      // Get question IDs already used in this lobby's rounds
+      const { data: existingRounds } = await supabase
+        .from('rounds')
+        .select('round_data')
+        .eq('lobby_id', lobbyId) as { data: { round_data: any }[] | null };
+
+      const usedIds = (existingRounds || [])
+        .map((r) => r.round_data?.question_id)
+        .filter(Boolean);
+
+      // Fetch a random question excluding used ones
+      let query = supabase.from('questions').select('*');
+      if (usedIds.length > 0) {
+        // Supabase doesn't support "not in" with array directly in .not(),
+        // so we filter client-side from a larger set
+        const { data: allQuestions } = await query as { data: Question[] | null };
+        const available = (allQuestions || []).filter((q) => !usedIds.includes(q.id));
+
+        if (available.length === 0) {
+          // All questions exhausted — allow repeats
+          const randomIndex = Math.floor(Math.random() * (allQuestions || []).length);
+          const q = (allQuestions || [])[randomIndex];
+          rd = { question_id: q.id, question: q.question, answer: q.answer };
+        } else {
+          const randomIndex = Math.floor(Math.random() * available.length);
+          const q = available[randomIndex];
+          rd = { question_id: q.id, question: q.question, answer: q.answer };
+        }
+      } else {
+        const { data: allQuestions } = await query as { data: Question[] | null };
+        if (!allQuestions || allQuestions.length === 0) {
+          // No questions in the bank
+          rd = { question_id: '', question: 'No questions available! Add questions to the database.', answer: '' };
+        } else {
+          const randomIndex = Math.floor(Math.random() * allQuestions.length);
+          const q = allQuestions[randomIndex];
+          rd = { question_id: q.id, question: q.question, answer: q.answer };
+        }
+      }
+    }
+
     await supabase.from('rounds').insert({
       id: crypto.randomUUID(),
       lobby_id: lobbyId,
       round_number: roundNumber,
-      game_type: 'color_rank',
+      game_type: gt,
       round_data: rd as any,
       status: 'active',
       started_at: new Date().toISOString(),
@@ -297,7 +373,7 @@ export default function LobbyPage() {
   const handleColorSelect = (hex: string) => {
     if (hasSubmitted) return;
 
-    const config = lobby?.game_config as unknown as GameConfig;
+    const config = lobby?.game_config as unknown as ColorRankGameConfig;
     const topN = config?.top_n_colors ?? 3;
 
     setSelectedColors((prev) => {
@@ -305,7 +381,7 @@ export default function LobbyPage() {
         return prev.filter((c) => c !== hex);
       }
       if (prev.length >= topN) {
-        return prev; // Already selected max
+        return prev;
       }
       return [...prev, hex];
     });
@@ -318,23 +394,31 @@ export default function LobbyPage() {
     if (timerRef.current) clearInterval(timerRef.current);
 
     const timeTaken = Date.now() - roundStartTime;
-    const answer: ColorRankAnswer = { selected_colors: selectedColors };
-
     const config = lobby?.game_config as unknown as GameConfig;
-    const topN = config?.top_n_colors ?? 3;
-    const score = calculateColorRankScore(answer, roundData!.correct_order, topN);
+    let score: number;
+    let answerData: any;
+
+    if (currentGameType === 'color_rank') {
+      const answer: ColorRankAnswer = { selected_colors: selectedColors };
+      const topN = (config as ColorRankGameConfig)?.top_n_colors ?? 3;
+      score = calculateColorRankScore(answer, (roundData as ColorRankRoundData).correct_order, topN);
+      answerData = answer;
+    } else {
+      const answer: QAAnswer = { text: qaAnswer };
+      score = calculateQAScore(answer, (roundData as QARoundData).answer);
+      answerData = answer;
+    }
 
     await supabase.from('submissions').insert({
       id: crypto.randomUUID(),
       round_id: currentRound.id,
       player_id: playerId,
       lobby_id: lobbyId,
-      answer: answer as any,
+      answer: answerData as any,
       score,
       time_taken_ms: timeTaken,
     });
 
-    // Update player total score
     const player = players.find((p) => p.id === playerId);
     if (player) {
       await supabase
@@ -358,7 +442,18 @@ export default function LobbyPage() {
 
     const nextRound = (lobby.current_round || 0) + 1;
     if (nextRound > lobby.total_rounds) {
-      // Game over
+      // Fetch total times for tiebreaker before showing game over
+      const { data: allSubs } = await supabase
+        .from('submissions')
+        .select('player_id, time_taken_ms')
+        .eq('lobby_id', lobbyId) as { data: { player_id: string; time_taken_ms: number }[] | null };
+
+      const totalTimes: Record<string, number> = {};
+      for (const sub of allSubs || []) {
+        totalTimes[sub.player_id] = (totalTimes[sub.player_id] || 0) + sub.time_taken_ms;
+      }
+      setPlayerTotalTimes(totalTimes);
+
       setPhase('game_over');
       await supabase
         .from('lobbies')
@@ -376,9 +471,9 @@ export default function LobbyPage() {
     setRoundData(null);
     setSubmissions([]);
     setSelectedColors([]);
+    setQaAnswer('');
     setHasSubmitted(false);
 
-    // Refetch players (scores may have updated)
     const { data } = await supabase
       .from('players')
       .select('*')
@@ -397,6 +492,54 @@ export default function LobbyPage() {
   const submittedPlayerIds = new Set(submissions.map((s) => s.player_id));
   const pendingPlayers = players.filter(
     (p) => p.is_connected && !submittedPlayerIds.has(p.id)
+  );
+
+  // ─── Shared UI: Pending players section ────────────────────
+  const renderPendingPlayers = () => {
+    if (pendingPlayers.length === 0) return null;
+    return (
+      <div className="mt-4">
+        <button
+          onClick={() => setShowPending((v) => !v)}
+          className="text-sm text-slate-500 hover:text-slate-300 transition-colors font-display"
+        >
+          {showPending ? 'Hide pending' : `Show who's pending (${pendingPlayers.length})`}
+        </button>
+        {showPending && (
+          <div className="mt-3 space-y-2">
+            {pendingPlayers.map((p) => (
+              <div key={p.id} className="flex items-center justify-center gap-2 text-slate-400">
+                <span>{p.icon}</span>
+                <span className="font-display text-sm">{p.name}</span>
+                {isHost && (
+                  <button
+                    onClick={() => handleKickPlayer(p.id)}
+                    className="text-slate-600 hover:text-red-400 transition-colors text-xs ml-1"
+                    title="Kick player"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ─── Shared UI: Submitted waiting ──────────────────────────
+  const renderSubmittedWaiting = () => (
+    <div className="text-center py-8 animate-slide-up">
+      <div className="text-5xl mb-3">✅</div>
+      <p className="font-display text-xl text-party-secondary font-semibold">
+        Answer Submitted!
+      </p>
+      <p className="text-slate-400 mt-2">
+        Waiting for other players... ({submittedCount}/{connectedCount})
+      </p>
+      {renderPendingPlayers()}
+    </div>
   );
 
   // ─── Render ────────────────────────────────────────────────
@@ -434,6 +577,7 @@ export default function LobbyPage() {
             {showSettings && isHost && lobby && (
               <GameSettings
                 lobby={lobby}
+                gameType={selectedGame}
                 onClose={() => setShowSettings(false)}
               />
             )}
@@ -485,20 +629,46 @@ export default function LobbyPage() {
             )}
           </div>
 
-          {/* Start Game Button (Host only) */}
+          {/* Game Selection & Start (Host only) */}
           {isHost && (
-            <button
-              onClick={handleStartGame}
-              disabled={players.length < 1}
-              className="btn-primary w-full text-xl py-4 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              🎮 Start ColorRank
-              {players.length < 1 && (
-                <span className="block text-sm font-normal opacity-70 mt-1">
-                  Need at least 1 player
-                </span>
-              )}
-            </button>
+            <div className="space-y-3">
+              {/* Game selector */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setSelectedGame('color_rank')}
+                  className={`flex-1 py-3 px-4 rounded-xl font-display text-sm font-semibold transition-all ${
+                    selectedGame === 'color_rank'
+                      ? 'bg-party-accent/20 border-2 border-party-accent text-party-accent'
+                      : 'bg-party-card border-2 border-party-border text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  🎨 ColorRank
+                </button>
+                <button
+                  onClick={() => setSelectedGame('question_answer')}
+                  className={`flex-1 py-3 px-4 rounded-xl font-display text-sm font-semibold transition-all ${
+                    selectedGame === 'question_answer'
+                      ? 'bg-party-accent/20 border-2 border-party-accent text-party-accent'
+                      : 'bg-party-card border-2 border-party-border text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  ❓ Q&A
+                </button>
+              </div>
+
+              <button
+                onClick={() => handleStartGame(selectedGame)}
+                disabled={players.length < 1}
+                className="btn-primary w-full text-xl py-4 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                🎮 Start {selectedGame === 'color_rank' ? 'ColorRank' : 'Q&A'}
+                {players.length < 1 && (
+                  <span className="block text-sm font-normal opacity-70 mt-1">
+                    Need at least 1 player
+                  </span>
+                )}
+              </button>
+            </div>
           )}
 
           {!isHost && (
@@ -530,7 +700,78 @@ export default function LobbyPage() {
 
   // Playing phase
   if (phase === 'playing' && roundData) {
-    const config = lobby?.game_config as unknown as GameConfig;
+    const isQA = currentGameType === 'question_answer';
+
+    // ─── Q&A Playing ─────────────────────────────────────────
+    if (isQA) {
+      const qaData = roundData as QARoundData;
+
+      return (
+        <div className="min-h-screen px-4 py-6">
+          <div className="max-w-2xl mx-auto">
+            {/* Header bar */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="font-display text-sm text-slate-400">
+                Round {lobby?.current_round}/{lobby?.total_rounds}
+              </div>
+              <div className={`font-mono text-2xl font-bold ${timeLeft <= 5 ? 'text-red-400 animate-pulse' : 'text-party-tertiary'}`}>
+                {timeLeft}s
+              </div>
+              <div className="font-display text-sm text-slate-400">
+                {submittedCount}/{connectedCount} answered
+              </div>
+            </div>
+
+            {/* Question */}
+            <div className="glass-card p-8 mb-6 text-center">
+              <p className="font-display text-2xl sm:text-3xl font-bold text-white leading-relaxed">
+                {qaData.question}
+              </p>
+            </div>
+
+            {/* Answer input */}
+            {!hasSubmitted ? (
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  value={qaAnswer}
+                  onChange={(e) => setQaAnswer(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && qaAnswer.trim()) handleSubmit(false);
+                  }}
+                  placeholder="Type your answer..."
+                  autoFocus
+                  className="w-full bg-party-bg border border-party-border rounded-xl px-4 py-4 text-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-party-secondary transition-colors font-body text-center"
+                />
+                <button
+                  onClick={() => handleSubmit(false)}
+                  disabled={!qaAnswer.trim()}
+                  className="btn-primary w-full text-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Lock In Answer
+                </button>
+              </div>
+            ) : (
+              renderSubmittedWaiting()
+            )}
+
+            {/* Host: End Round */}
+            {isHost && (
+              <button
+                onClick={handleEndRound}
+                className="mt-4 w-full text-center text-slate-500 hover:text-slate-300 transition-colors font-display text-sm py-2"
+              >
+                End Round Early →
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── ColorRank Playing ───────────────────────────────────
+    const crData = roundData as ColorRankRoundData;
+    const config = lobby?.game_config as unknown as ColorRankGameConfig;
     const topN = config?.top_n_colors ?? 3;
 
     return (
@@ -551,7 +792,7 @@ export default function LobbyPage() {
 
           {/* Image */}
           <div className="mb-6">
-            <ColorRankImage roundData={roundData} />
+            <ColorRankImage roundData={crData} />
           </div>
 
           {/* Instructions */}
@@ -568,7 +809,7 @@ export default function LobbyPage() {
           {!hasSubmitted ? (
             <>
               <div className="flex flex-wrap justify-center gap-4 mb-6">
-                {roundData.colors.map((color) => {
+                {crData.colors.map((color) => {
                   const selectedIndex = selectedColors.indexOf(color.hex);
                   const isSelected = selectedIndex >= 0;
 
@@ -631,44 +872,7 @@ export default function LobbyPage() {
               </button>
             </>
           ) : (
-            <div className="text-center py-8 animate-slide-up">
-              <div className="text-5xl mb-3">✅</div>
-              <p className="font-display text-xl text-party-secondary font-semibold">
-                Answer Submitted!
-              </p>
-              <p className="text-slate-400 mt-2">
-                Waiting for other players... ({submittedCount}/{connectedCount})
-              </p>
-              {pendingPlayers.length > 0 && (
-                <div className="mt-4">
-                  <button
-                    onClick={() => setShowPending((v) => !v)}
-                    className="text-sm text-slate-500 hover:text-slate-300 transition-colors font-display"
-                  >
-                    {showPending ? 'Hide pending' : `Show who's pending (${pendingPlayers.length})`}
-                  </button>
-                  {showPending && (
-                    <div className="mt-3 space-y-2">
-                      {pendingPlayers.map((p) => (
-                        <div key={p.id} className="flex items-center justify-center gap-2 text-slate-400">
-                          <span>{p.icon}</span>
-                          <span className="font-display text-sm">{p.name}</span>
-                          {isHost && (
-                            <button
-                              onClick={() => handleKickPlayer(p.id)}
-                              className="text-slate-600 hover:text-red-400 transition-colors text-xs ml-1"
-                              title="Kick player"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            renderSubmittedWaiting()
           )}
 
           {/* Host: End Round */}
@@ -687,8 +891,8 @@ export default function LobbyPage() {
 
   // Round Results
   if (phase === 'round_results') {
+    const isQA = currentGameType === 'question_answer';
     const config = lobby?.game_config as unknown as GameConfig;
-    const topN = config?.top_n_colors ?? 3;
     const isLastRound = (lobby?.current_round || 0) >= (lobby?.total_rounds || 5);
 
     return (
@@ -699,27 +903,40 @@ export default function LobbyPage() {
           </h2>
 
           {/* Correct answer */}
-          {roundData && (
-            <div className="glass-card p-4 mb-6">
-              <p className="font-display text-sm text-slate-400 mb-2 text-center">
-                Correct top {topN} (by area):
+          {isQA && roundData ? (
+            <div className="glass-card p-4 mb-6 text-center">
+              <p className="font-display text-sm text-slate-400 mb-1">Correct answer:</p>
+              <p className="font-display text-xl font-bold text-party-secondary">
+                {(roundData as QARoundData).answer}
               </p>
-              <div className="flex justify-center gap-3">
-                {roundData.correct_order.slice(0, topN).map((hex, i) => {
-                  const color = roundData.colors.find((c) => c.hex === hex);
-                  return (
-                    <div key={hex} className="text-center">
-                      <div
-                        className="w-12 h-12 rounded-lg mx-auto mb-1"
-                        style={{ backgroundColor: hex }}
-                      />
-                      <div className="text-xs text-slate-400">{color?.name}</div>
-                      <div className="text-xs text-party-tertiary font-mono">{color?.percentage}%</div>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
+          ) : (
+            roundData && (() => {
+              const crData = roundData as ColorRankRoundData;
+              const topN = (config as ColorRankGameConfig)?.top_n_colors ?? 3;
+              return (
+                <div className="glass-card p-4 mb-6">
+                  <p className="font-display text-sm text-slate-400 mb-2 text-center">
+                    Correct top {topN} (by area):
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    {crData.correct_order.slice(0, topN).map((hex) => {
+                      const color = crData.colors.find((c) => c.hex === hex);
+                      return (
+                        <div key={hex} className="text-center">
+                          <div
+                            className="w-12 h-12 rounded-lg mx-auto mb-1"
+                            style={{ backgroundColor: hex }}
+                          />
+                          <div className="text-xs text-slate-400">{color?.name}</div>
+                          <div className="text-xs text-party-tertiary font-mono">{color?.percentage}%</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()
           )}
 
           <Scoreboard
@@ -733,9 +950,7 @@ export default function LobbyPage() {
             <div className="mt-6 space-y-3">
               {isLastRound ? (
                 <button
-                  onClick={() => {
-                    setPhase('game_over');
-                  }}
+                  onClick={handleNextRound}
                   className="btn-primary w-full text-lg"
                 >
                   🏆 See Final Results
@@ -765,7 +980,11 @@ export default function LobbyPage() {
 
   // Game Over
   if (phase === 'game_over') {
-    const sortedPlayers = [...players].sort((a, b) => b.total_score - a.total_score);
+    // Sort by total_score DESC, then total time ASC as tiebreaker
+    const sortedPlayers = [...players].sort((a, b) => {
+      if (b.total_score !== a.total_score) return b.total_score - a.total_score;
+      return (playerTotalTimes[a.id] || 0) - (playerTotalTimes[b.id] || 0);
+    });
 
     return (
       <div className="min-h-screen px-4 py-8">
@@ -825,7 +1044,7 @@ export default function LobbyPage() {
 
           {isHost && (
             <div className="space-y-3">
-              <button onClick={handleStartGame} className="btn-primary w-full text-lg">
+              <button onClick={() => handleStartGame()} className="btn-primary w-full text-lg">
                 🔄 Play Again
               </button>
               <button onClick={handleBackToLobby} className="btn-secondary w-full text-lg">

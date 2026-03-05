@@ -9,23 +9,40 @@ export const PLAYER_ICONS = [
 
 export const MAX_PLAYERS_PER_LOBBY = 30;
 
-export type GameType = 'color_rank';
+export type GameType = 'color_rank' | 'question_answer';
 
-export interface GameConfig {
-  game_type: GameType;
+// ─── ColorRank Config ─────────────────────────────────────
+export interface ColorRankGameConfig {
+  game_type: 'color_rank';
   total_rounds: number;
-  top_n_colors: number; // how many top colors players must pick
+  top_n_colors: number;
   time_limit_seconds: number;
 }
 
-export const DEFAULT_COLORRANK_CONFIG: GameConfig = {
+export const DEFAULT_COLORRANK_CONFIG: ColorRankGameConfig = {
   game_type: 'color_rank',
   total_rounds: 5,
   top_n_colors: 3,
   time_limit_seconds: 30,
 };
 
-// ColorRank specific types
+// ─── Q&A Config ───────────────────────────────────────────
+export interface QAGameConfig {
+  game_type: 'question_answer';
+  total_rounds: number;
+  time_limit_seconds: number;
+}
+
+export const DEFAULT_QA_CONFIG: QAGameConfig = {
+  game_type: 'question_answer',
+  total_rounds: 5,
+  time_limit_seconds: 30,
+};
+
+// Union config type
+export type GameConfig = ColorRankGameConfig | QAGameConfig;
+
+// ─── ColorRank Types ──────────────────────────────────────
 export interface ColorRankRoundData {
   image_url: string;
   colors: ColorOption[];
@@ -42,7 +59,19 @@ export interface ColorRankAnswer {
   selected_colors: string[]; // hex values in order player ranked them
 }
 
-// Scoring
+// ─── Q&A Types ────────────────────────────────────────────
+export interface QARoundData {
+  question_id: string;
+  question: string;
+  answer: string;
+}
+
+export interface QAAnswer {
+  text: string;
+}
+
+// ─── Scoring ──────────────────────────────────────────────
+
 export function calculateColorRankScore(
   answer: ColorRankAnswer,
   correctOrder: string[],
@@ -59,6 +88,15 @@ export function calculateColorRankScore(
   }
 
   return score;
+}
+
+export function calculateQAScore(
+  answer: QAAnswer,
+  correctAnswer: string
+): number {
+  return answer.text.trim().toLowerCase() === correctAnswer.trim().toLowerCase()
+    ? 1
+    : 0;
 }
 
 // Ranking: sort by score DESC, then time ASC

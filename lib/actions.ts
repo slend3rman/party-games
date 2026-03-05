@@ -6,6 +6,7 @@ import {
   calculateColorRankScore,
   type ColorRankAnswer,
   type ColorRankRoundData,
+  type ColorRankGameConfig,
   type GameConfig,
 } from './game-types';
 import type { Lobby, Player, Round, Submission } from './database.types';
@@ -206,7 +207,7 @@ export async function submitAnswer(
     .eq('id', lobbyId)
     .single();
 
-  const config = lobby?.game_config as unknown as GameConfig;
+  const config = lobby?.game_config as unknown as ColorRankGameConfig;
   const topN = config?.top_n_colors ?? 3;
 
   const score = calculateColorRankScore(answer, roundData.correct_order, topN);
