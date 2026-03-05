@@ -234,6 +234,10 @@ export default function LobbyPage() {
   const handleStartGame = async () => {
     if (!isHost || !lobbyId) return;
 
+    // Delete old rounds (submissions cascade-delete via FK) so that the
+    // UNIQUE(lobby_id, round_number) constraint doesn't block new rounds.
+    await supabase.from('rounds').delete().eq('lobby_id', lobbyId);
+
     // Update lobby status
     await supabase
       .from('lobbies')
@@ -262,6 +266,14 @@ export default function LobbyPage() {
     const roundDataIndex = (roundNumber - 1) % COLOR_RANK_ROUNDS.length;
     const rd = COLOR_RANK_ROUNDS[roundDataIndex];
 
+    // Update lobby current_round BEFORE inserting the round, so that when the
+    // real-time subscription fires for the new round, lobby.current_round is
+    // already correct for display.
+    await supabase
+      .from('lobbies')
+      .update({ current_round: roundNumber })
+      .eq('id', lobbyId);
+
     await supabase.from('rounds').insert({
       id: crypto.randomUUID(),
       lobby_id: lobbyId,
@@ -271,11 +283,6 @@ export default function LobbyPage() {
       status: 'active',
       started_at: new Date().toISOString(),
     });
-
-    await supabase
-      .from('lobbies')
-      .update({ current_round: roundNumber })
-      .eq('id', lobbyId);
   };
 
   const handleColorSelect = (hex: string) => {

@@ -150,6 +150,14 @@ export async function startNextRound(lobbyId: string): Promise<Round | null> {
   const roundDataIndex = (nextRoundNumber - 1) % COLOR_RANK_ROUNDS.length;
   const roundData = COLOR_RANK_ROUNDS[roundDataIndex];
 
+  // Update lobby current_round BEFORE inserting the round, so that when the
+  // real-time subscription fires for the new round, lobby.current_round is
+  // already correct for display.
+  await supabase
+    .from('lobbies')
+    .update({ current_round: nextRoundNumber })
+    .eq('id', lobbyId);
+
   // Create the round
   const { data: round, error } = await supabase
     .from('rounds')
@@ -169,12 +177,6 @@ export async function startNextRound(lobbyId: string): Promise<Round | null> {
     console.error('Error creating round:', error);
     return null;
   }
-
-  // Update lobby
-  await supabase
-    .from('lobbies')
-    .update({ current_round: nextRoundNumber })
-    .eq('id', lobbyId);
 
   return round;
 }
