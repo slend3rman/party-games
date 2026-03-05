@@ -31,6 +31,7 @@ export default function LobbyPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [countdown, setCountdown] = useState(3);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPending, setShowPending] = useState(false);
 
   // Player's answer state
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
@@ -141,7 +142,15 @@ export default function LobbyPage() {
             .select('*')
             .eq('lobby_id', lobbyId)
             .order('created_at', { ascending: true }) as { data: Player[] | null };
-          if (data) setPlayers(data);
+          if (data) {
+            setPlayers(data);
+            // Detect if current player was kicked
+            const pid = sessionStorage.getItem('playerId');
+            if (pid && !data.some((p) => p.id === pid)) {
+              sessionStorage.clear();
+              router.push(`/lobby/join?code=${code}&kicked=true`);
+            }
+          }
         }
       )
       .on(
@@ -378,8 +387,17 @@ export default function LobbyPage() {
     if (data) setPlayers(data);
   };
 
+  const handleKickPlayer = async (kickPlayerId: string) => {
+    if (!isHost) return;
+    await supabase.from('players').delete().eq('id', kickPlayerId);
+  };
+
   const submittedCount = submissions.length;
   const connectedCount = players.filter((p) => p.is_connected).length;
+  const submittedPlayerIds = new Set(submissions.map((s) => s.player_id));
+  const pendingPlayers = players.filter(
+    (p) => p.is_connected && !submittedPlayerIds.has(p.id)
+  );
 
   // ─── Render ────────────────────────────────────────────────
 
@@ -446,6 +464,15 @@ export default function LobbyPage() {
                       player.is_connected ? 'bg-green-400' : 'bg-slate-500'
                     }`}
                   />
+                  {isHost && !player.is_host && (
+                    <button
+                      onClick={() => handleKickPlayer(player.id)}
+                      className="text-slate-600 hover:text-red-400 transition-colors text-sm shrink-0 ml-1"
+                      title="Kick player"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -612,6 +639,35 @@ export default function LobbyPage() {
               <p className="text-slate-400 mt-2">
                 Waiting for other players... ({submittedCount}/{connectedCount})
               </p>
+              {pendingPlayers.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => setShowPending((v) => !v)}
+                    className="text-sm text-slate-500 hover:text-slate-300 transition-colors font-display"
+                  >
+                    {showPending ? 'Hide pending' : `Show who's pending (${pendingPlayers.length})`}
+                  </button>
+                  {showPending && (
+                    <div className="mt-3 space-y-2">
+                      {pendingPlayers.map((p) => (
+                        <div key={p.id} className="flex items-center justify-center gap-2 text-slate-400">
+                          <span>{p.icon}</span>
+                          <span className="font-display text-sm">{p.name}</span>
+                          {isHost && (
+                            <button
+                              onClick={() => handleKickPlayer(p.id)}
+                              className="text-slate-600 hover:text-red-400 transition-colors text-xs ml-1"
+                              title="Kick player"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

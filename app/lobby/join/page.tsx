@@ -10,11 +10,12 @@ function JoinLobbyContent() {
   const searchParams = useSearchParams();
   const code = searchParams.get('code') || '';
   const isHost = searchParams.get('host') === 'true';
+  const wasKicked = searchParams.get('kicked') === 'true';
 
   const [name, setName] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('');
   const [isJoining, setIsJoining] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(wasKicked ? 'You were removed from the lobby by the host.' : '');
   const [lobbyExists, setLobbyExists] = useState<boolean | null>(null);
 
   // Check if lobby exists
