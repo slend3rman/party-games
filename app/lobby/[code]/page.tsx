@@ -126,6 +126,19 @@ export default function LobbyPage() {
               setHasSubmitted(true);
             }
           }
+        } else if (lobbyData.status === 'finished') {
+          // Rejoin after game finished — show game over screen
+          const { data: allSubs } = await supabase
+            .from('submissions')
+            .select('player_id, time_taken_ms')
+            .eq('lobby_id', lobbyId) as { data: { player_id: string; time_taken_ms: number }[] | null };
+
+          const totalTimes: Record<string, number> = {};
+          for (const sub of allSubs || []) {
+            totalTimes[sub.player_id] = (totalTimes[sub.player_id] || 0) + sub.time_taken_ms;
+          }
+          setPlayerTotalTimes(totalTimes);
+          setPhase('game_over');
         }
       }
 
@@ -150,9 +163,36 @@ export default function LobbyPage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'lobbies', filter: `id=eq.${lobbyId}` },
-        (payload) => {
+        async (payload) => {
           const newLobby = payload.new as Lobby;
           setLobby(newLobby);
+
+          // When lobby status becomes 'finished', all clients transition to game_over
+          if (newLobby.status === 'finished') {
+            // Fetch total times for tiebreaker
+            const { data: allSubs } = await supabase
+              .from('submissions')
+              .select('player_id, time_taken_ms')
+              .eq('lobby_id', lobbyId) as { data: { player_id: string; time_taken_ms: number }[] | null };
+
+            const totalTimes: Record<string, number> = {};
+            for (const sub of allSubs || []) {
+              totalTimes[sub.player_id] = (totalTimes[sub.player_id] || 0) + sub.time_taken_ms;
+            }
+            setPlayerTotalTimes(totalTimes);
+            setPhase('game_over');
+          }
+
+          // When lobby goes back to 'waiting' (host clicked Back to Lobby), reset to lobby phase
+          if (newLobby.status === 'waiting') {
+            setPhase('lobby');
+            setCurrentRound(null);
+            setRoundData(null);
+            setSubmissions([]);
+            setSelectedColors([]);
+            setQaAnswer('');
+            setHasSubmitted(false);
+          }
         }
       )
       .on(
@@ -455,9 +495,11 @@ export default function LobbyPage() {
       setPlayerTotalTimes(totalTimes);
 
       setPhase('game_over');
+      // Set status to 'finished' so all clients detect game over via realtime
+      // Keep current_game and current_round intact for proper rendering
       await supabase
         .from('lobbies')
-        .update({ status: 'waiting', current_game: null, current_round: 0 })
+        .update({ status: 'finished' })
         .eq('id', lobbyId);
       return;
     }
@@ -466,13 +508,12 @@ export default function LobbyPage() {
   };
 
   const handleBackToLobby = async () => {
-    setPhase('lobby');
-    setCurrentRound(null);
-    setRoundData(null);
-    setSubmissions([]);
-    setSelectedColors([]);
-    setQaAnswer('');
-    setHasSubmitted(false);
+    // Update lobby status to 'waiting' — this triggers realtime for all clients
+    // to transition back to lobby phase
+    await supabase
+      .from('lobbies')
+      .update({ status: 'waiting', current_game: null, current_round: 0 })
+      .eq('id', lobbyId);
 
     const { data } = await supabase
       .from('players')
@@ -944,6 +985,8 @@ export default function LobbyPage() {
             submissions={submissions}
             playerId={playerId}
             showRoundScore
+            isHost={isHost}
+            onKickPlayer={handleKickPlayer}
           />
 
           {isHost && (
@@ -1037,6 +1080,15 @@ export default function LobbyPage() {
                   <div className="font-mono text-party-tertiary font-bold">
                     {player.total_score} pts
                   </div>
+                  {isHost && !player.is_host && (
+                    <button
+                      onClick={() => handleKickPlayer(player.id)}
+                      className="text-slate-600 hover:text-red-400 transition-colors text-sm shrink-0 ml-1"
+                      title="Kick player"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

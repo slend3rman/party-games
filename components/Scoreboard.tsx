@@ -8,9 +8,11 @@ interface Props {
   submissions: Submission[];
   playerId: string;
   showRoundScore?: boolean;
+  isHost?: boolean;
+  onKickPlayer?: (playerId: string) => void;
 }
 
-export default function Scoreboard({ players, submissions, playerId, showRoundScore }: Props) {
+export default function Scoreboard({ players, submissions, playerId, showRoundScore, isHost, onKickPlayer }: Props) {
   // Build ranked results for this round
   const roundResults = submissions.map((sub) => ({
     player_id: sub.player_id,
@@ -100,6 +102,17 @@ export default function Scoreboard({ players, submissions, playerId, showRoundSc
                 </div>
                 <div className="text-[10px] text-slate-500 uppercase tracking-wider">total</div>
               </div>
+
+              {/* Kick button */}
+              {isHost && !player.is_host && onKickPlayer && (
+                <button
+                  onClick={() => onKickPlayer(player.id)}
+                  className="text-slate-600 hover:text-red-400 transition-colors text-sm shrink-0 ml-1"
+                  title="Kick player"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           );
         })}
